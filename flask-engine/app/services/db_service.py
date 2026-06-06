@@ -26,46 +26,76 @@ def _get_conn():
 
 def get_all_active_embeddings() -> List[Dict]:
     """
-    Ambil semua embedding wajah aktif dari tabel faces (join ke students aktif).
-    Return: [{'face_id':int, 'student_id':int, 'embedding':np.ndarray}, ...]
+    Ambil semua embedding wajah aktif dari tabel faces.
+    Return: [{'face_id': int, 'student_id': int, 'embedding': np.ndarray}, ...]
     """
-    conn   = _get_conn()
+    conn = _get_conn()
     cursor = conn.cursor(dictionary=True)
 
     try:
         cursor.execute("""
             SELECT
-                f.id         AS face_id,
+                f.id AS face_id,
                 f.student_id,
-                f.embedding
-            FROM faces     f
+                f.embedding,
+                f.model_version
+            FROM faces f
             INNER JOIN students s ON s.id = f.student_id
             WHERE
-                f.is_active  = 1
+                f.is_active = 1
                 AND s.is_active = 1
                 AND f.embedding IS NOT NULL
-                AND s.deleted_at IS NULL
         """)
+
         rows = cursor.fetchall()
+        logger.info(f"[DB] Raw face rows found: {len(rows)}")
 
         result = []
+
         for row in rows:
             try:
-                raw = row['embedding']
+                raw = row["embedding"]
+
                 if isinstance(raw, (bytes, bytearray)):
-                    raw = raw.decode('utf-8')
-                embedding_list = json.loads(raw)
+                    raw = raw.decode("utf-8")
+
+                if isinstance(raw, str):
+                    embedding_list = json.loads(raw)
+                elif isinstance(raw, list):
+                    embedding_list = raw
+                elif isinstance(raw, dict) and "embedding" in raw:
+                    embedding_list = raw["embedding"]
+                else:
+                    logger.warning(
+                        f"Skip unsupported embedding type face_id={row['face_id']}: {type(raw)}"
+                    )
+                    continue
+
+                if isinstance(embedding_list, str):
+                    embedding_list = json.loads(embedding_list)
+
+                embedding_array = np.array(embedding_list, dtype=np.float64)
+
+                if embedding_array.ndim != 1 or embedding_array.size == 0:
+                    logger.warning(f"Skip invalid embedding shape face_id={row['face_id']}")
+                    continue
+
                 result.append({
-                    'face_id':    row['face_id'],
-                    'student_id': row['student_id'],
-                    'embedding':  np.array(embedding_list, dtype=np.float64),
+                    "face_id": row["face_id"],
+                    "student_id": row["student_id"],
+                    "embedding": embedding_array,
                 })
-            except (json.JSONDecodeError, ValueError, TypeError) as e:
+
+            except Exception as e:
                 logger.warning(f"Skip corrupt embedding face_id={row['face_id']}: {e}")
                 continue
 
-        logger.debug(f"Loaded {len(result)} embeddings from DB")
+        logger.info(f"[DB] Loaded {len(result)} valid embeddings from DB")
         return result
+
+    except Exception as e:
+        logger.error(f"[DB] Failed to load embeddings: {e}", exc_info=True)
+        return []
 
     finally:
         cursor.close()

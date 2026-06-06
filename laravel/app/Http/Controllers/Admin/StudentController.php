@@ -6,18 +6,32 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreStudentRequest;
 use App\Models\Student;
 use App\Models\ClassRoom;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class StudentController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $search = $request->input('search');
+
         $students = Student::with('classRoom')
             ->withCount('faces')
+            ->when($search, function ($query) use ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', '%' . $search . '%')
+                        ->orWhere('nim', 'like', '%' . $search . '%')
+                        ->orWhere('email', 'like', '%' . $search . '%')
+                        ->orWhereHas('classRoom', function ($classQuery) use ($search) {
+                            $classQuery->where('name', 'like', '%' . $search . '%');
+                        });
+                });
+            })
             ->orderBy('name')
-            ->paginate(20);
+            ->paginate(20)
+            ->withQueryString();
 
-        return view('admin.students.index', compact('students'));
+        return view('admin.students.index', compact('students', 'search'));
     }
 
     public function create()

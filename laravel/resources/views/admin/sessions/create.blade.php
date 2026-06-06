@@ -10,7 +10,7 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
 
         <form action="{{ route('admin.sessions.store') }}" method="POST">
-            @csrf
+            @csrf 
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
 
